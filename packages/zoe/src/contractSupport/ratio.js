@@ -94,9 +94,9 @@ export const makeRatioFromAmounts = (numeratorAmount, denominatorAmount) => {
   AmountMath.coerce(numeratorAmount.brand, numeratorAmount);
   AmountMath.coerce(denominatorAmount.brand, denominatorAmount);
   return makeRatio(
-    /** @type {NatValue} */ (numeratorAmount.value),
+    numeratorAmount.value,
     numeratorAmount.brand,
-    /** @type {NatValue} */ (denominatorAmount.value),
+    denominatorAmount.value,
     denominatorAmount.brand,
   );
 };

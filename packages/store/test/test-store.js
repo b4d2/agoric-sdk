@@ -137,3 +137,20 @@ test('passability of store iters', t => {
   const iterResult = iter.next();
   t.is(passStyleOf(iterResult), 'copyRecord');
 });
+
+test('iterates in ascending key order', t => {
+  const m = makeScalarMapStore('bar');
+  m.init(2, 'two');
+  m.init(1, 'one');
+  m.init(3, 'three');
+  t.deepEqual([...m.keys()], [1, 2, 3]);
+  t.deepEqual([...m.values()], ['one', 'two', 'three']);
+  t.deepEqual(
+    [...m.entries()],
+    [
+      [1, 'one'],
+      [2, 'two'],
+      [3, 'three'],
+    ],
+  );
+});
