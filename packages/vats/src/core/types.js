@@ -154,6 +154,7 @@
  *     argv: {
  *       ROLE: string,
  *       hardcodedClientAddresses: string[],
+ *       noFakeCurrencies: boolean,
  *     },
  *     bootstrapManifest?: Record<string, Record<string, unknown>>,
  *     governanceActions?: boolean,

@@ -1,70 +1,131 @@
 // @ts-check
 import { assert } from '@agoric/assert';
+import { AmountMath } from '@agoric/ertp';
 import { Nat } from '@agoric/nat';
+import {
+  natSafeMath,
+  makeRatio,
+} from '@agoric/zoe/src/contractSupport/index.js';
+import { E } from '@endo/far';
+
+const { multiply, floorDivide } = natSafeMath;
+const { entries } = Object;
 
 export const CENTRAL_ISSUER_NAME = 'RUN';
+const CENTRAL_DENOM_NAME = 'urun';
 
-/**
- * @typedef {Object} CollateralConfig
- * @property {string} keyword
- * @property {bigint} collateralValue the initial price of this collateral is
- * provided by tradesGivenCentral[0]
- * @property {bigint} initialMarginPercent
- * @property {bigint} liquidationMarginPercent
- * @property {bigint} interestRateBasis
- * @property {bigint} loanFeeBasis
- */
-
-/**
- * @typedef {Object} IssuerInitializationRecord
- * @property {Issuer} [issuer]
- * @property {Brand} [brand]
- * @property {Array<any>} [issuerArgs]
- * @property {CollateralConfig} [collateralConfig]
- * @property {string} [bankDenom]
- * @property {string} [bankPurse]
- * @property {Payment} [bankPayment]
- * @property {Array<[string, bigint]>} [defaultPurses]
- * @property {Array<[bigint, bigint]>} [tradesGivenCentral]
- */
-
-/**
- * @callback Scaler Scale a number from a (potentially fractional) input to a
- * fixed-precision bigint
- * @param {bigint | number} n the input number to scale, must be a
- * natural number
- * @param {number} [fromDecimalPlaces=0] number of decimal places to keep from the input
- * @returns {bigint} the scaled integer
- */
-
-/**
- * Create a decimal scaler.
- *
- * @param {number} toDecimalPlaces number of decimal places in the scaled value
- * @returns {Scaler}
- */
-export const makeScaler = toDecimalPlaces => {
-  assert.typeof(toDecimalPlaces, 'number');
-  Nat(toDecimalPlaces);
-  return (n, fromDecimalPlaces = 0) => {
-    assert.typeof(fromDecimalPlaces, 'number');
-    Nat(fromDecimalPlaces);
-    if (typeof n === 'bigint') {
-      // Bigints never preserve decimal places.
-      return Nat(n) * 10n ** Nat(toDecimalPlaces);
-    }
-    // Fractional scaling needs a number, not a bigint.
-    assert.typeof(n, 'number');
-    return (
-      Nat(Math.floor(n * 10 ** fromDecimalPlaces)) *
-      10n ** Nat(toDecimalPlaces - fromDecimalPlaces)
-    );
-  };
+const DecimalPlaces = {
+  ATOM: 6,
+  WETH: 18,
+  LINK: 18,
+  USDC: 18,
 };
-export const scaleMills = makeScaler(4);
-export const scaleMicro = makeScaler(6);
-export const scaleEth = makeScaler(18);
-export const scaleCentral = scaleMicro;
+
+/** @type {Record<string, { petName: string, balance: bigint}>} */
+const FaucetPurseDetail = {
+  LINK: { petName: 'Oracle fee', balance: 51n },
+  USDC: { petName: 'USD Coin', balance: 1_323n },
+};
+
+const FakePurseDetail = {
+  ATOM: { petName: 'Cosmos Staking', balance: 68n },
+  moola: { petName: 'Fun budget', balance: 1900n },
+  simolean: { petName: 'Nest egg', balance: 970n },
+};
+
+const PCT = 100n;
+const BASIS = 10_000n;
+
+/**
+ * @typedef {[bigint, bigint]} Rational
+ *
+ * @type { Record<string, {
+ *   config?: {
+ *     collateralValue: bigint,
+ *     initialMargin: Rational,
+ *     liquidationMargin: Rational,
+ *     interestRate: Rational,
+ *     loanFee: Rational,
+ *   },
+ *   trades: Array<{ central: number, collateral: number}>
+ * }>}
+ */
+const AMMDemoState = {
+  /* We actually can IBC-transfer Atoms via Pegasus right now. */
+  ATOM: {
+    config: {
+      collateralValue: 1_000_000n,
+      initialMargin: [150n, PCT],
+      liquidationMargin: [125n, PCT],
+      interestRate: [250n, BASIS],
+      loanFee: [1n, BASIS],
+    },
+    trades: [
+      { central: 33.28, collateral: 1 },
+      { central: 34.61, collateral: 1 },
+      { central: 37.83, collateral: 1 },
+    ],
+  },
+
+  WETH: {
+    config: {
+      collateralValue: 1_000_000n,
+      initialMargin: [150n, PCT],
+      liquidationMargin: [125n, PCT],
+      interestRate: [250n, BASIS],
+      loanFee: [1n, BASIS],
+    },
+    trades: [
+      { central: 3286.01, collateral: 1 },
+      { central: 3435.86, collateral: 1 },
+      { central: 3443.21, collateral: 1 },
+    ],
+  },
+
+  LINK: {
+    config: {
+      collateralValue: 1_000_000n,
+      initialMargin: [150n, PCT],
+      liquidationMargin: [125n, PCT],
+      interestRate: [250n, BASIS],
+      loanFee: [1n, BASIS],
+    },
+    trades: [
+      { central: 26.9, collateral: 1 },
+      { central: 30.59, collateral: 1 },
+      { central: 30.81, collateral: 1 },
+    ],
+  },
+
+  USDC: {
+    config: {
+      collateralValue: 10_000_000n,
+      initialMargin: [150n, PCT],
+      liquidationMargin: [125n, PCT],
+      interestRate: [250n, BASIS],
+      loanFee: [1n, BASIS],
+    },
+    trades: [{ central: 1, collateral: 1 }],
+  },
+
+  moola: {
+    trades: [
+      { central: 1, collateral: 1 },
+      { central: 1.3, collateral: 1 },
+      { central: 1.2, collateral: 1 },
+      { central: 1.8, collateral: 1 },
+      { central: 1.5, collateral: 1 },
+    ],
+  },
+
+  simolean: {
+    trades: [
+      { central: 21.35, collateral: 1 },
+      { central: 21.72, collateral: 1 },
+      { central: 21.24, collateral: 1 },
+    ],
+  },
+};
 
 /** @type {[string, IssuerInitializationRecord]} */
 const BLD_ISSUER_ENTRY = [
@@ -98,9 +159,7 @@ const fromCosmosIssuerEntries = centralRecord => [
   ],
   BLD_ISSUER_ENTRY,
 ];
-
 harden(fromCosmosIssuerEntries);
-export { fromCosmosIssuerEntries };
 
 /**
  * Note that we can still add these fake currencies to be traded on the AMM.
@@ -110,288 +169,9 @@ export { fromCosmosIssuerEntries };
  * @param {boolean} noObviouslyFakeCurrencies
  * @returns {Array<[string, IssuerInitializationRecord]>}
  */
-export const demoIssuerEntries = noObviouslyFakeCurrencies => {
-  const doFakePurses = noObviouslyFakeCurrencies ? undefined : true;
-  return [
-    /* We actually can IBC-transfer Atoms via Pegasus right now. */
-    [
-      'ATOM',
-      {
-        issuerArgs: [undefined, { decimalPlaces: 6 }],
-        defaultPurses: doFakePurses && [['Cosmos Staking', scaleMicro(68)]],
-        collateralConfig: {
-          keyword: 'ATOM',
-          collateralValue: scaleMicro(1_000_000n),
-          initialMarginPercent: 150n,
-          liquidationMarginPercent: 125n,
-          interestRateBasis: 250n,
-          loanFeeBasis: 1n,
-        },
-        tradesGivenCentral: [
-          [scaleCentral(33.28, 2), scaleMicro(1)],
-          [scaleCentral(34.61, 2), scaleMicro(1)],
-          [scaleCentral(37.83, 2), scaleMicro(1)],
-        ],
-      },
-    ],
-    [
-      'WETH',
-      {
-        issuerArgs: [undefined, { decimalPlaces: 18 }],
-        collateralConfig: {
-          keyword: 'WETH',
-          collateralValue: scaleEth(1_000_000n),
-          initialMarginPercent: 150n,
-          liquidationMarginPercent: 125n,
-          interestRateBasis: 250n,
-          loanFeeBasis: 1n,
-        },
-        tradesGivenCentral: [
-          [scaleCentral(3286.01, 2), scaleEth(1)],
-          [scaleCentral(3435.86, 2), scaleEth(1)],
-          [scaleCentral(3443.21, 2), scaleEth(1)],
-        ],
-      },
-    ],
-    [
-      'LINK',
-      {
-        issuerArgs: [undefined, { decimalPlaces: 18 }],
-        defaultPurses: [['Oracle fee', scaleEth(51n)]],
-        collateralConfig: {
-          keyword: 'LINK',
-          collateralValue: scaleEth(1_000_000n),
-          initialMarginPercent: 150n,
-          liquidationMarginPercent: 125n,
-          interestRateBasis: 250n,
-          loanFeeBasis: 1n,
-        },
-        tradesGivenCentral: [
-          [scaleCentral(26.9, 2), scaleEth(1)],
-          [scaleCentral(30.59, 2), scaleEth(1)],
-          [scaleCentral(30.81, 2), scaleEth(1)],
-        ],
-      },
-    ],
-    [
-      'USDC',
-      {
-        issuerArgs: [undefined, { decimalPlaces: 18 }],
-        defaultPurses: [['USD Coin', scaleEth(1_323n)]],
-        collateralConfig: {
-          keyword: 'USDC',
-          collateralValue: scaleEth(10_000_000n),
-          initialMarginPercent: 150n,
-          liquidationMarginPercent: 125n,
-          interestRateBasis: 250n,
-          loanFeeBasis: 1n,
-        },
-        tradesGivenCentral: [[scaleCentral(1), scaleEth(1)]],
-      },
-    ],
-    [
-      'moola',
-      {
-        defaultPurses: doFakePurses && [['Fun budget', 1900n]],
-        tradesGivenCentral: [
-          [scaleCentral(1), 1n],
-          [scaleCentral(1.3, 1), 1n],
-          [scaleCentral(1.2, 1), 1n],
-          [scaleCentral(1.8, 1), 1n],
-          [scaleCentral(1.5, 1), 1n],
-        ],
-      },
-    ],
-    [
-      'simolean',
-      {
-        defaultPurses: doFakePurses && [['Nest egg', 970n]],
-        tradesGivenCentral: [
-          [scaleCentral(21.35, 2), 1n],
-          [scaleCentral(21.72, 2), 1n],
-          [scaleCentral(21.24, 2), 1n],
-        ],
-      },
-    ],
-  ];
-};
 
-harden(demoIssuerEntries);
-
-const renameMe = async () => {
-  const demoIssuers = demoIssuerEntries(noFakeCurrencies);
-  // all the non=RUN issuers. RUN can't be initialized until we have the
-  // bootstrap payment, but we need to know pool sizes to ask for that.
-  const demoAndBldIssuers = [...demoIssuers, BLD_ISSUER_ENTRY];
-
-  // Calculate how much RUN we need to fund the AMM pools
-  function ammPoolRunDeposits(issuers) {
-    let ammTotal = 0n;
-    const ammPoolIssuers = [];
-    const ammPoolBalances = [];
-    issuers.forEach(entry => {
-      const [issuerName, record] = entry;
-      if (!record.collateralConfig) {
-        // skip RUN and fake issuers
-        return;
-      }
-      assert(record.tradesGivenCentral);
-      /** @type {bigint} */
-      // The initial trade represents the fair value of RUN for collateral.
-      const initialTrade = record.tradesGivenCentral[0];
-      // The collateralValue to be deposited is given, and we want to deposit
-      // the same value of RUN in the pool. For instance, We're going to
-      // deposit 2 * 10^13 BLD, and 10^6 build will trade for 28.9 * 10^6 RUN
-      const poolBalance = floorDivide(
-        multiply(record.collateralConfig.collateralValue, initialTrade[0]),
-        initialTrade[1],
-      );
-      ammTotal += poolBalance;
-      ammPoolIssuers.push(issuerName);
-      ammPoolBalances.push(poolBalance);
-    });
-    return {
-      ammTotal,
-      ammPoolBalances,
-      ammPoolIssuers,
-    };
-  }
-
-  const {
-    ammTotal: ammDepositValue,
-    ammPoolBalances,
-    ammPoolIssuers,
-  } = ammPoolRunDeposits(demoAndBldIssuers);
-
-  // We'll usually have something like:
-  // {
-  //   type: 'AG_COSMOS_INIT',
-  //   chainID: 'agoric',
-  //   storagePort: 1,
-  //   supplyCoins: [
-  //     { denom: 'provisionpass', amount: '100' },
-  //     { denom: 'sendpacketpass', amount: '100' },
-  //     { denom: 'ubld', amount: '1000000000000000' },
-  //     { denom: 'urun', amount: '50000000000' }
-  //   ]
-  //   vbankPort: 3,
-  //   vibcPort: 2
-  // }
-  const { supplyCoins = [] } =
-    (vatParameters && vatParameters.argv && vatParameters.argv.bootMsg) || {};
-
-  const centralBootstrapSupply = supplyCoins.find(
-    ({ denom }) => denom === CENTRAL_DENOM_NAME,
-  ) || { amount: '0' };
-
-  // Now we can bootstrap the economy!
-  const bankBootstrapSupply = Nat(BigInt(centralBootstrapSupply.amount));
-  // Ask the vaultFactory for enough RUN to fund both AMM and bank.
-  const bootstrapPaymentValue = bankBootstrapSupply + ammDepositValue;
-  // NOTE: no use of the voteCreator. We'll need it to initiate votes on
-  // changing VaultFactory parameters.
-  const { vaultFactoryCreator, _voteCreator, ammFacets } = await installEconomy(
-    bootstrapPaymentValue,
-  );
-
-  const [
-    centralIssuer,
-    centralBrand,
-    ammInstance,
-    pegasusInstance,
-  ] = await Promise.all([
-    E(agoricNames).lookup('issuer', CENTRAL_ISSUER_NAME),
-    E(agoricNames).lookup('brand', CENTRAL_ISSUER_NAME),
-    E(agoricNames).lookup('instance', 'amm'),
-    E(agoricNames).lookup('instance', 'Pegasus'),
-  ]);
-
-  // Start the reward distributor.
-  const epochTimerService = chainTimerService;
-  const distributorParams = {
-    epochInterval: 60n * 60n, // 1 hour
-  };
-  const feeCollectorDepositFacet = await E(bankManager)
-    .getFeeCollectorDepositFacet(CENTRAL_DENOM_NAME, {
-      issuer: centralIssuer,
-      brand: centralBrand,
-    })
-    .catch(e => {
-      console.log('Cannot create fee collector', e);
-      return undefined;
-    });
-  if (feeCollectorDepositFacet) {
-    // Only distribute fees if there is a collector.
-    E(vats.distributeFees)
-      .buildDistributor(
-        E(vats.distributeFees).makeFeeCollector(zoe, [
-          vaultFactoryCreator,
-          ammFacets.ammCreatorFacet,
-        ]),
-        feeCollectorDepositFacet,
-        epochTimerService,
-        harden(distributorParams),
-      )
-      .catch(e => console.error('Error distributing fees', e));
-  }
-
-  /**
-   * @type {Store<Brand, Payment>} A store containing payments that weren't
-   * used by the bank and can be used for other purposes.
-   */
-  const unusedBankPayments = makeStore('brand');
-
-  /* Prime the bank vat with our bootstrap payment. */
-  const centralBootstrapPayment = await E(
-    vaultFactoryCreator,
-  ).getBootstrapPayment(AmountMath.make(centralBrand, bootstrapPaymentValue));
-
-  const [ammBootstrapPayment, bankBootstrapPayment] = await E(
-    centralIssuer,
-  ).split(
-    centralBootstrapPayment,
-    AmountMath.make(centralBrand, ammDepositValue),
-  );
-
-  // If there's no bankBridgeManager, we'll find other uses for these funds.
-  if (!bankBridgeManager) {
-    unusedBankPayments.init(centralBrand, bankBootstrapPayment);
-  }
-
-  /** @type {Array<[string, import('./issuers').IssuerInitializationRecord]>} */
-  const rawIssuerEntries = [
-    ...fromCosmosIssuerEntries({
-      issuer: centralIssuer,
-      brand: centralBrand,
-      bankDenom: CENTRAL_DENOM_NAME,
-      bankPayment: bankBootstrapPayment,
-    }),
-    // We still create demo currencies, but not obviously fake ones unless
-    // $FAKE_CURRENCIES is given.
-    ...demoIssuers,
-  ];
-
-  const issuerEntries = await Promise.all(
-    rawIssuerEntries.map(async entry => {
-      const [issuerName, record] = entry;
-      if (record.issuer !== undefined) {
-        return entry;
-      }
-      /** @type {Issuer} */
-      const issuer = await E(vats.mints).makeMintAndIssuer(
-        issuerName,
-        ...(record.issuerArgs || []),
-      );
-      const brand = await E(issuer).getBrand();
-
-      const newRecord = harden({ ...record, brand, issuer });
-
-      /** @type {[string, typeof newRecord]} */
-      const newEntry = [issuerName, newRecord];
-      return newEntry;
-    }),
-  );
-
+/** @param { BootstrapPowers } powers */
+export const addBankAssets = async ({ consume: { bankManager } }) => {
   // Add bank assets.
   await Promise.all(
     issuerEntries.map(async entry => {
@@ -425,6 +205,161 @@ const renameMe = async () => {
 
       const kit = await kitP;
       return E(bankManager).addAsset(bankDenom, issuerName, bankPurse, kit);
+    }),
+  );
+};
+harden(addBankAssets);
+
+/**
+ * @param { BootstrapPowers & {
+ *   vatParameters: { argv: { bootMsg?: typeof bootMsgEx }}
+ * }} powers
+ */
+export const renameMe = async ({
+  vatParameters: {
+    argv: { bootMsg, noFakeCurrencies },
+  },
+  consume: { zoe, agoricNames },
+}) => {
+  const demoIssuers = demoIssuerEntries(noFakeCurrencies);
+  // all the non=RUN issuers. RUN can't be initialized until we have the
+  // bootstrap payment, but we need to know pool sizes to ask for that.
+  const demoAndBldIssuers = [...demoIssuers, BLD_ISSUER_ENTRY];
+
+  /** @param { bigint } n */
+  const inCentral = n => n * 10n ** DecimalPlaces[CENTRAL_ISSUER_NAME];
+
+  /**
+   * Calculate how much RUN we need to fund the AMM pools
+   *
+   * @param {typeof AMMDemoState} issuers
+   * @returns
+   */
+  function ammPoolRunDeposits(issuers) {
+    let ammTotal = 0n;
+    const ammPoolIssuers = /** @type {string[]} */ ([]);
+    const ammPoolBalances = /** @type {bigint[]} */ ([]);
+    entries(issuers).forEach(([issuerName, record]) => {
+      if (!record.config) {
+        // skip RUN and fake issuers
+        return;
+      }
+      assert(record.trades);
+
+      /** @param { bigint } n */
+      const inCollateral = n => n * 10n ** DecimalPlaces[issuerName];
+
+      // The initial trade represents the fair value of RUN for collateral.
+      const initialTrade = record.trades[0];
+      // The collateralValue to be deposited is given, and we want to deposit
+      // the same value of RUN in the pool. For instance, We're going to
+      // deposit 2 * 10^13 BLD, and 10^6 build will trade for 28.9 * 10^6 RUN
+      const poolBalance = floorDivide(
+        multiply(
+          inCollateral(record.config.collateralValue),
+          inCentral(BigInt(initialTrade.central)),
+        ),
+        inCollateral(BigInt(initialTrade.collateral)),
+      );
+      ammTotal += poolBalance;
+      ammPoolIssuers.push(issuerName);
+      ammPoolBalances.push(poolBalance);
+    });
+    return {
+      ammTotal,
+      ammPoolBalances,
+      ammPoolIssuers,
+    };
+  }
+
+  const {
+    ammTotal: ammDepositValue,
+    ammPoolBalances,
+    ammPoolIssuers,
+  } = ammPoolRunDeposits(AMMDemoState);
+
+  const { supplyCoins = [] } = bootMsg || {};
+
+  const centralBootstrapSupply = supplyCoins.find(
+    ({ denom }) => denom === CENTRAL_DENOM_NAME,
+  ) || { amount: '0' };
+
+  // Now we can bootstrap the economy!
+  const bankBootstrapSupply = Nat(BigInt(centralBootstrapSupply.amount));
+  // Ask the vaultFactory for enough RUN to fund both AMM and bank.
+  const bootstrapPaymentValue = bankBootstrapSupply + ammDepositValue;
+  // NOTE: no use of the voteCreator. We'll need it to initiate votes on
+  // changing VaultFactory parameters.
+  const { vaultFactoryCreator, _voteCreator, ammFacets } = await installEconomy(
+    bootstrapPaymentValue,
+  );
+
+  const [
+    centralIssuer,
+    centralBrand,
+    ammInstance,
+    pegasusInstance,
+  ] = await Promise.all([
+    E(agoricNames).lookup('issuer', CENTRAL_ISSUER_NAME),
+    E(agoricNames).lookup('brand', CENTRAL_ISSUER_NAME),
+    E(agoricNames).lookup('instance', 'amm'),
+    E(agoricNames).lookup('instance', 'Pegasus'),
+  ]);
+
+  /**
+   * @type {Store<Brand, Payment>} A store containing payments that weren't
+   * used by the bank and can be used for other purposes.
+   */
+  const unusedBankPayments = makeStore('brand');
+
+  /* Prime the bank vat with our bootstrap payment. */
+  const centralBootstrapPayment = await E(
+    vaultFactoryCreator,
+  ).getBootstrapPayment(AmountMath.make(centralBrand, bootstrapPaymentValue));
+
+  const [ammBootstrapPayment, bankBootstrapPayment] = await E(
+    centralIssuer,
+  ).split(
+    centralBootstrapPayment,
+    AmountMath.make(centralBrand, ammDepositValue),
+  );
+
+  // If there's no bankBridgeManager, we'll find other uses for these funds.
+  if (!bankBridgeManager) {
+    unusedBankPayments.init(centralBrand, bankBootstrapPayment);
+  }
+
+  /** @type {Array<[string, IssuerInitializationRecord]>} */
+  const rawIssuerEntries = [
+    ...fromCosmosIssuerEntries({
+      issuer: centralIssuer,
+      brand: centralBrand,
+      bankDenom: CENTRAL_DENOM_NAME,
+      bankPayment: bankBootstrapPayment,
+    }),
+    // We still create demo currencies, but not obviously fake ones unless
+    // $FAKE_CURRENCIES is given.
+    ...demoIssuers,
+  ];
+
+  const issuerEntries = await Promise.all(
+    rawIssuerEntries.map(async entry => {
+      const [issuerName, record] = entry;
+      if (record.issuer !== undefined) {
+        return entry;
+      }
+      /** @type {Issuer} */
+      const issuer = await E(vats.mints).makeMintAndIssuer(
+        issuerName,
+        ...(record.issuerArgs || []),
+      );
+      const brand = await E(issuer).getBrand();
+
+      const newRecord = harden({ ...record, brand, issuer });
+
+      /** @type {[string, typeof newRecord]} */
+      const newEntry = [issuerName, newRecord];
+      return newEntry;
     }),
   );
 
@@ -550,11 +485,6 @@ const renameMe = async () => {
       quoteInterval: QUOTE_INTERVAL,
     });
 
-  const [ammPublicFacet, pegasus] = await Promise.all(
-    [ammInstance, pegasusInstance].map(instance =>
-      E(zoe).getPublicFacet(instance),
-    ),
-  );
   await addAllCollateral();
 
   const brandsWithPriceAuthorities = await E(ammPublicFacet).getAllPoolBrands();
