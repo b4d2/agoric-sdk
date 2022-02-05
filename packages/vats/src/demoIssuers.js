@@ -1,7 +1,8 @@
 // @ts-check
 import { assert } from '@agoric/assert';
-import { AmountMath } from '@agoric/ertp';
+import { AmountMath, AssetKind } from '@agoric/ertp';
 import { Nat } from '@agoric/nat';
+import { Collect } from '@agoric/run-protocol/src/collect';
 import {
   natSafeMath,
   makeRatio,
@@ -9,12 +10,14 @@ import {
 import { E } from '@endo/far';
 
 const { multiply, floorDivide } = natSafeMath;
-const { entries } = Object;
+const { entries, fromEntries, keys } = Object;
 
 export const CENTRAL_ISSUER_NAME = 'RUN';
 const CENTRAL_DENOM_NAME = 'urun';
 
 const DecimalPlaces = {
+  BLD: 6,
+  [CENTRAL_ISSUER_NAME]: 6,
   ATOM: 6,
   WETH: 18,
   LINK: 18,
@@ -23,6 +26,7 @@ const DecimalPlaces = {
 
 /** @type {Record<string, { petName: string, balance: bigint}>} */
 const FaucetPurseDetail = {
+  [CENTRAL_ISSUER_NAME]: { petName: 'Agoric RUN currency', balance: 53n },
   LINK: { petName: 'Oracle fee', balance: 51n },
   USDC: { petName: 'USD Coin', balance: 1_323n },
 };
@@ -39,6 +43,8 @@ const BASIS = 10_000n;
 /**
  * @typedef {[bigint, bigint]} Rational
  *
+ * TODO: test vs 50m from sim-chain.js
+ *
  * @type { Record<string, {
  *   config?: {
  *     collateralValue: bigint,
@@ -47,10 +53,26 @@ const BASIS = 10_000n;
  *     interestRate: Rational,
  *     loanFee: Rational,
  *   },
- *   trades: Array<{ central: number, collateral: number}>
+ *   trades: Array<{ central: number, collateral: bigint}>
  * }>}
  */
 const AMMDemoState = {
+  // TODO: getRUN makes BLD obsolete here
+  BLD: {
+    config: {
+      collateralValue: 20_000_000n,
+      initialMargin: [150n, PCT],
+      liquidationMargin: [125n, PCT],
+      interestRate: [250n, BASIS],
+      loanFee: [1n, BASIS],
+    },
+    trades: [
+      { central: 1.23, collateral: 1n },
+      { central: 1.21, collateral: 1n },
+      { central: 1.22, collateral: 1n },
+    ],
+  },
+
   /* We actually can IBC-transfer Atoms via Pegasus right now. */
   ATOM: {
     config: {
@@ -61,9 +83,9 @@ const AMMDemoState = {
       loanFee: [1n, BASIS],
     },
     trades: [
-      { central: 33.28, collateral: 1 },
-      { central: 34.61, collateral: 1 },
-      { central: 37.83, collateral: 1 },
+      { central: 33.28, collateral: 1n },
+      { central: 34.61, collateral: 1n },
+      { central: 37.83, collateral: 1n },
     ],
   },
 
@@ -76,9 +98,9 @@ const AMMDemoState = {
       loanFee: [1n, BASIS],
     },
     trades: [
-      { central: 3286.01, collateral: 1 },
-      { central: 3435.86, collateral: 1 },
-      { central: 3443.21, collateral: 1 },
+      { central: 3286.01, collateral: 1n },
+      { central: 3435.86, collateral: 1n },
+      { central: 3443.21, collateral: 1n },
     ],
   },
 
@@ -91,9 +113,9 @@ const AMMDemoState = {
       loanFee: [1n, BASIS],
     },
     trades: [
-      { central: 26.9, collateral: 1 },
-      { central: 30.59, collateral: 1 },
-      { central: 30.81, collateral: 1 },
+      { central: 26.9, collateral: 1n },
+      { central: 30.59, collateral: 1n },
+      { central: 30.81, collateral: 1n },
     ],
   },
 
@@ -105,135 +127,52 @@ const AMMDemoState = {
       interestRate: [250n, BASIS],
       loanFee: [1n, BASIS],
     },
-    trades: [{ central: 1, collateral: 1 }],
+    trades: [{ central: 1, collateral: 1n }],
   },
 
   moola: {
     trades: [
-      { central: 1, collateral: 1 },
-      { central: 1.3, collateral: 1 },
-      { central: 1.2, collateral: 1 },
-      { central: 1.8, collateral: 1 },
-      { central: 1.5, collateral: 1 },
+      { central: 1, collateral: 1n },
+      { central: 1.3, collateral: 1n },
+      { central: 1.2, collateral: 1n },
+      { central: 1.8, collateral: 1n },
+      { central: 1.5, collateral: 1n },
     ],
   },
 
   simolean: {
     trades: [
-      { central: 21.35, collateral: 1 },
-      { central: 21.72, collateral: 1 },
-      { central: 21.24, collateral: 1 },
+      { central: 21.35, collateral: 1n },
+      { central: 21.72, collateral: 1n },
+      { central: 21.24, collateral: 1n },
     ],
   },
 };
-
-/** @type {[string, IssuerInitializationRecord]} */
-const BLD_ISSUER_ENTRY = [
-  'BLD',
-  {
-    issuerArgs: [undefined, { decimalPlaces: 6 }],
-    defaultPurses: [['Agoric staking token', scaleMicro(5000)]],
-    bankDenom: 'ubld',
-    bankPurse: 'Agoric staking token',
-    tradesGivenCentral: [
-      [scaleCentral(1.23, 2), scaleMicro(1)],
-      [scaleCentral(1.21, 2), scaleMicro(1)],
-      [scaleCentral(1.22, 2), scaleMicro(1)],
-    ],
-  },
-];
-harden(BLD_ISSUER_ENTRY);
-export { BLD_ISSUER_ENTRY };
-
-/** @type {(centralRecord: Partial<IssuerInitializationRecord>) => Array<[string, IssuerInitializationRecord]>} */
-const fromCosmosIssuerEntries = centralRecord => [
-  [
-    CENTRAL_ISSUER_NAME,
-    {
-      issuerArgs: [undefined, { decimalPlaces: 6 }],
-      defaultPurses: [['Agoric RUN currency', scaleMicro(53)]],
-      bankPurse: 'Agoric RUN currency',
-      tradesGivenCentral: [[1n, 1n]],
-      ...centralRecord,
-    },
-  ],
-  BLD_ISSUER_ENTRY,
-];
-harden(fromCosmosIssuerEntries);
-
-/**
- * Note that we can still add these fake currencies to be traded on the AMM.
- * Just don't add a defaultPurses entry if you don't want them to be given out
- * on bootstrap.  They might still be tradable on the AMM.
- *
- * @param {boolean} noObviouslyFakeCurrencies
- * @returns {Array<[string, IssuerInitializationRecord]>}
- */
-
-/** @param { BootstrapPowers } powers */
-export const addBankAssets = async ({ consume: { bankManager } }) => {
-  // Add bank assets.
-  await Promise.all(
-    issuerEntries.map(async entry => {
-      const [issuerName, record] = entry;
-      const { bankDenom, bankPurse, brand, issuer, bankPayment } = record;
-      if (!bankDenom || !bankPurse) {
-        return undefined;
-      }
-
-      assert(brand);
-      assert(issuer);
-
-      const makeMintKit = async () => {
-        // We need to obtain the mint in order to mint the tokens when they
-        // come from the bank.
-        // FIXME: Be more careful with the mint.
-        const mint = await E(vats.mints).getMint(issuerName);
-        return harden({ brand, issuer, mint });
-      };
-
-      let kitP;
-      if (bankBridgeManager && bankPayment) {
-        // The bank needs the payment to back its existing bridge peg.
-        kitP = harden({ brand, issuer, payment: bankPayment });
-      } else if (unusedBankPayments.has(brand)) {
-        // No need to back the currency.
-        kitP = harden({ brand, issuer });
-      } else {
-        kitP = makeMintKit();
-      }
-
-      const kit = await kitP;
-      return E(bankManager).addAsset(bankDenom, issuerName, bankPurse, kit);
-    }),
-  );
-};
-harden(addBankAssets);
 
 /**
  * @param { BootstrapPowers & {
- *   vatParameters: { argv: { bootMsg?: typeof bootMsgEx }}
+ *   consume: { loadVat: VatLoader<MintsVat> }
  * }} powers
  */
-export const renameMe = async ({
-  vatParameters: {
-    argv: { bootMsg, noFakeCurrencies },
+export const fundAMM = async ({
+  consume: {
+    zoe,
+    agoricNames,
+    centralSupplyBundle: centralP,
+    feeMintAccess: feeMintAccessP,
+    loadVat,
+    vaultFactoryCreator,
   },
-  consume: { zoe, agoricNames },
 }) => {
-  const demoIssuers = demoIssuerEntries(noFakeCurrencies);
-  // all the non=RUN issuers. RUN can't be initialized until we have the
-  // bootstrap payment, but we need to know pool sizes to ask for that.
-  const demoAndBldIssuers = [...demoIssuers, BLD_ISSUER_ENTRY];
-
-  /** @param { bigint } n */
-  const inCentral = n => n * 10n ** DecimalPlaces[CENTRAL_ISSUER_NAME];
+  /** @param { number } f */
+  const run2places = f =>
+    BigInt(Math.round(f * 100)) *
+    10n ** BigInt(DecimalPlaces[CENTRAL_ISSUER_NAME] - 2);
 
   /**
    * Calculate how much RUN we need to fund the AMM pools
    *
    * @param {typeof AMMDemoState} issuers
-   * @returns
    */
   function ammPoolRunDeposits(issuers) {
     let ammTotal = 0n;
@@ -257,9 +196,9 @@ export const renameMe = async ({
       const poolBalance = floorDivide(
         multiply(
           inCollateral(record.config.collateralValue),
-          inCentral(BigInt(initialTrade.central)),
+          run2places(initialTrade.central),
         ),
-        inCollateral(BigInt(initialTrade.collateral)),
+        inCollateral(initialTrade.collateral),
       );
       ammTotal += poolBalance;
       ammPoolIssuers.push(issuerName);
@@ -278,89 +217,58 @@ export const renameMe = async ({
     ammPoolIssuers,
   } = ammPoolRunDeposits(AMMDemoState);
 
-  const { supplyCoins = [] } = bootMsg || {};
-
-  const centralBootstrapSupply = supplyCoins.find(
-    ({ denom }) => denom === CENTRAL_DENOM_NAME,
-  ) || { amount: '0' };
-
-  // Now we can bootstrap the economy!
-  const bankBootstrapSupply = Nat(BigInt(centralBootstrapSupply.amount));
-  // Ask the vaultFactory for enough RUN to fund both AMM and bank.
-  const bootstrapPaymentValue = bankBootstrapSupply + ammDepositValue;
-  // NOTE: no use of the voteCreator. We'll need it to initiate votes on
-  // changing VaultFactory parameters.
-  const { vaultFactoryCreator, _voteCreator, ammFacets } = await installEconomy(
-    bootstrapPaymentValue,
-  );
-
-  const [
-    centralIssuer,
-    centralBrand,
-    ammInstance,
-    pegasusInstance,
-  ] = await Promise.all([
+  const [centralIssuer, centralBrand, ammInstance] = await Promise.all([
     E(agoricNames).lookup('issuer', CENTRAL_ISSUER_NAME),
     E(agoricNames).lookup('brand', CENTRAL_ISSUER_NAME),
     E(agoricNames).lookup('instance', 'amm'),
-    E(agoricNames).lookup('instance', 'Pegasus'),
+  ]);
+  const ammPublicFacet = await E(zoe).getPublicFacet(ammInstance);
+
+  const [centralSupplyBundle, feeMintAccess] = await Promise.all([
+    centralP,
+    feeMintAccessP,
+  ]);
+  const { creatorFacet: ammSupplier } = await E(zoe).startInstance(
+    E(zoe).install(centralSupplyBundle),
+    { Central: centralIssuer },
+    { bootstrapPaymentValue: ammDepositValue },
+    { feeMintAccess },
+  );
+  /** @type { Payment } */
+  const ammBootstrapPayment = await E(ammSupplier).getBootstrapPayment();
+
+  const vats = {
+    mints: E(loadVat)('mints'),
+  };
+
+  const [bldIssuer, bldBrand] = await Promise.all([
+    E(agoricNames).lookup('issuer', 'BLD'),
+    E(agoricNames).lookup('brand', 'BLD'),
   ]);
 
-  /**
-   * @type {Store<Brand, Payment>} A store containing payments that weren't
-   * used by the bank and can be used for other purposes.
-   */
-  const unusedBankPayments = makeStore('brand');
-
-  /* Prime the bank vat with our bootstrap payment. */
-  const centralBootstrapPayment = await E(
-    vaultFactoryCreator,
-  ).getBootstrapPayment(AmountMath.make(centralBrand, bootstrapPaymentValue));
-
-  const [ammBootstrapPayment, bankBootstrapPayment] = await E(
-    centralIssuer,
-  ).split(
-    centralBootstrapPayment,
-    AmountMath.make(centralBrand, ammDepositValue),
-  );
-
-  // If there's no bankBridgeManager, we'll find other uses for these funds.
-  if (!bankBridgeManager) {
-    unusedBankPayments.init(centralBrand, bankBootstrapPayment);
-  }
-
-  /** @type {Array<[string, IssuerInitializationRecord]>} */
-  const rawIssuerEntries = [
-    ...fromCosmosIssuerEntries({
-      issuer: centralIssuer,
-      brand: centralBrand,
-      bankDenom: CENTRAL_DENOM_NAME,
-      bankPayment: bankBootstrapPayment,
-    }),
-    // We still create demo currencies, but not obviously fake ones unless
-    // $FAKE_CURRENCIES is given.
-    ...demoIssuers,
-  ];
-
-  const issuerEntries = await Promise.all(
-    rawIssuerEntries.map(async entry => {
-      const [issuerName, record] = entry;
-      if (record.issuer !== undefined) {
-        return entry;
-      }
-      /** @type {Issuer} */
-      const issuer = await E(vats.mints).makeMintAndIssuer(
-        issuerName,
-        ...(record.issuerArgs || []),
-      );
-      const brand = await E(issuer).getBrand();
-
-      const newRecord = harden({ ...record, brand, issuer });
-
-      /** @type {[string, typeof newRecord]} */
-      const newEntry = [issuerName, newRecord];
-      return newEntry;
-    }),
+  const kits = await Collect.allValues(
+    Collect.mapValues(
+      fromEntries(keys(AMMDemoState).map(n => [n, n])),
+      async issuerName => {
+        switch (issuerName) {
+          case 'RUN':
+            return { issuer: centralIssuer, brand: centralBrand };
+          case 'BLD':
+            return { issuer: bldIssuer, brand: bldBrand };
+          default: {
+            const issuer = await E(vats.mints).makeMintAndIssuer(
+              issuerName,
+              AssetKind.NAT,
+              {
+                decimalPlaces: DecimalPlaces[issuerName],
+              },
+            );
+            const brand = await E(issuer).getBrand();
+            return { issuer, brand };
+          }
+        }
+      },
+    ),
   );
 
   async function addAllCollateral() {
@@ -388,53 +296,50 @@ export const renameMe = async ({
     const issuerMap = await splitAllCentralPayments();
 
     return Promise.all(
-      issuerEntries.map(async entry => {
-        const [issuerName, record] = entry;
-        const config = record.collateralConfig;
+      entries(AMMDemoState).map(async ([issuerName, record]) => {
+        /** @param { bigint } n */
+        const inCollateral = n => n * 10n ** BigInt(DecimalPlaces[issuerName]);
+        const config = record.config;
         if (!config) {
           return undefined;
         }
-        assert(record.tradesGivenCentral);
-        const initialPrice = record.tradesGivenCentral[0];
+        assert(record.trades);
+        const initialPrice = record.trades[0];
         assert(initialPrice);
-        const initialPriceNumerator = /** @type {bigint} */ (initialPrice[0]);
+        const initialPriceNumerator = run2places(record.trades[0].central);
+
+        /**
+         * @param {Rational} r
+         * @param {Brand} b
+         */
+        const toRatio = ([n, d], b) => makeRatio(n, b, d);
         const rates = {
           initialPrice: makeRatio(
             initialPriceNumerator,
             centralBrand,
-            /** @type {bigint} */ (initialPrice[1]),
-            record.brand,
+            inCollateral(initialPrice.collateral),
+            kits[issuerName].brand,
           ),
-          initialMargin: makeRatio(config.initialMarginPercent, centralBrand),
-          liquidationMargin: makeRatio(
-            config.liquidationMarginPercent,
-            centralBrand,
-          ),
-          interestRate: makeRatio(
-            config.interestRateBasis,
-            centralBrand,
-            BASIS_POINTS_DENOM,
-          ),
-          loanFee: makeRatio(
-            config.loanFeeBasis,
-            centralBrand,
-            BASIS_POINTS_DENOM,
-          ),
+          initialMargin: toRatio(config.initialMargin, centralBrand),
+          liquidationMargin: toRatio(config.liquidationMargin, centralBrand),
+          interestRate: toRatio(config.interestRate, centralBrand),
+          loanFee: toRatio(config.loanFee, centralBrand),
         };
 
         const collateralPayments = E(vats.mints).mintInitialPayments(
           [issuerName],
-          [config.collateralValue],
+          [inCollateral(config.collateralValue)],
         );
         const secondaryPayment = E.get(collateralPayments)[0];
 
-        assert(record.issuer, `No issuer for ${issuerName}`);
-        const liquidityIssuer = E(ammFacets.ammPublicFacet).addPool(
-          record.issuer,
-          config.keyword,
+        const kit = kits[issuerName];
+        assert(kit.issuer, `No issuer for ${issuerName}`);
+        const liquidityIssuer = E(ammPublicFacet).addPool(
+          kit.issuer,
+          issuerName,
         );
         const [secondaryAmount, liquidityBrand] = await Promise.all([
-          E(record.issuer).getAmountOf(secondaryPayment),
+          E(kit.issuer).getAmountOf(secondaryPayment),
           E(liquidityIssuer).getBrand(),
         ]);
         const centralAmount = issuerMap[issuerName].amount;
@@ -444,7 +349,7 @@ export const renameMe = async ({
         });
 
         E(zoe).offer(
-          E(ammFacets.ammPublicFacet).makeAddLiquidityInvitation(),
+          E(ammPublicFacet).makeAddLiquidityInvitation(),
           proposal,
           harden({
             Secondary: secondaryPayment,
@@ -453,8 +358,8 @@ export const renameMe = async ({
         );
 
         return E(vaultFactoryCreator).addVaultType(
-          record.issuer,
-          config.keyword,
+          kit.issuer,
+          issuerName,
           rates,
         );
       }),

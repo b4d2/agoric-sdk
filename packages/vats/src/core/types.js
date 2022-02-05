@@ -107,7 +107,7 @@
  *     pegasusBundle: Promise<SourceBundle>,
  *     priceAuthority: ERef<PriceAuthority>,
  *     priceAuthorityAdmin: ERef<PriceAuthorityRegistryAdmin>,
- *     vaultFactoryCreator: ERef<{ makeCollectFeesInvitation: () => Promise<Invitation> }>,
+ *     vaultFactoryCreator: ERef<VaultFactory>,
  *     vaultFactoryGovernorCreator: ERef<GovernedContractFacetAccess>,
  *     zoe: ERef<ZoeService>,
  *   },
@@ -186,6 +186,7 @@
  * @typedef {ReturnType<Unpromise<BankVat>['makeBankManager']>} BankManager
  * @typedef {ERef<ReturnType<import('../vat-bank.js').buildRootObject>>} BankVat
  * @typedef {ERef<ReturnType<import('../vat-provisioning.js').buildRootObject>>} ProvisioningVat
+ * @typedef {ERef<ReturnType<import('../vat-mints.js').buildRootObject>>} MintsVat
  * @typedef { import('@agoric/zoe/tools/priceAuthorityRegistry').PriceAuthorityRegistryAdmin } PriceAuthorityRegistryAdmin
  */
 
