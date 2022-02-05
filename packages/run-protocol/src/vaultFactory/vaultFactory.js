@@ -240,7 +240,6 @@ export const start = async (zcf, privateArgs) => {
     addVaultType,
     getCollaterals,
     getRewardAllocation,
-    getBootstrapPayment: mintBootstrapPayment(),
     makeCollectFeesInvitation,
     getContractGovernor: () => electionManager,
   });
