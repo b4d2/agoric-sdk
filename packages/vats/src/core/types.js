@@ -129,7 +129,6 @@
  *     priceAuthority: Producer<PriceAuthority>,
  *     priceAuthorityAdmin: Producer<PriceAuthorityRegistryAdmin>,
  *     pegasusBundle: Producer<SourceBundle>,
- *     pegasusCreatorFacet: Producer<unknown>,
  *     vaultFactoryCreator: Producer<{ makeCollectFeesInvitation: () => Promise<Invitation> }>,
  *     vaultFactoryGovernorCreator: Producer<unknown>,
  *     vaultFactoryVoteCreator: Producer<unknown>,

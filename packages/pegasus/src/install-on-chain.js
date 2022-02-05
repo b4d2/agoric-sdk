@@ -12,7 +12,6 @@ export async function installOnChain({
     pegasusBundle,
     zoe,
   },
-  produce,
 }) {
   // Fetch the nameAdmins we need.
   const [installAdmin, instanceAdmin, uiConfigAdmin] = await Promise.all(
@@ -29,7 +28,7 @@ export async function installOnChain({
     namesByAddress,
   });
 
-  const { instance, creatorFacet } = await E(zoe).startInstance(
+  const { instance } = await E(zoe).startInstance(
     pegasusInstall,
     undefined,
     terms,
@@ -69,6 +68,4 @@ export async function installOnChain({
       E(nameAdmin).update(name, value),
     ),
   );
-
-  produce.pegasusCreatorFacet.resolve(creatorFacet);
 }
