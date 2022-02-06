@@ -2,7 +2,7 @@
 import { assert } from '@agoric/assert';
 import { AmountMath, AssetKind } from '@agoric/ertp';
 import { Nat } from '@agoric/nat';
-import { Collect } from '@agoric/run-protocol/src/collect';
+import { Collect } from '@agoric/run-protocol/src/collect.js';
 import {
   natSafeMath,
   makeRatio,
