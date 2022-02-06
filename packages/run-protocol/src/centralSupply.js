@@ -23,10 +23,8 @@ export const start = async (zcf, { feeMintAccess }) => {
   const runMint = await zcf.registerFeeMint('RUN', feeMintAccess);
 
   const mintBootstrapPayment = () => {
-    const {
-      zcfSeat: bootstrapZCFSeat,
-      userSeat: bootstrapUserSeat,
-    } = zcf.makeEmptySeatKit();
+    const { zcfSeat: bootstrapZCFSeat, userSeat: bootstrapUserSeat } =
+      zcf.makeEmptySeatKit();
     const bootstrapAmount = AmountMath.make(runBrand, bootstrapPaymentValue);
     runMint.mintGains(
       harden({
